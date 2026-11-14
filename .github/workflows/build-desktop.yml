@@ -1,0 +1,77 @@
+# Membangun versi desktop: Windows (.exe installer, .msi, dan folder portabel), macOS (.dmg), Linux (.deb).
+# jpackage tidak bisa lintas-OS, jadi setiap format dibangun di runner OS-nya sendiri.
+# Terpisah dari build-release.yml (APK Android) dan hanya jalan saat berkas terkait desktop berubah.
+name: Build Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/**'
+      - 'app/src/main/java/com/example/web/**'
+      - 'app/src/main/java/com/example/data/**'
+      - 'app/src/main/assets/web/**'
+      - '.github/workflows/build-desktop.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Paket ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            tasks: packageExe packageMsi
+            artifact_path: |
+              desktop/build/compose/binaries/main/exe/*.exe
+              desktop/build/compose/binaries/main/msi/*.msi
+          - name: macOS
+            os: macos-latest
+            tasks: packageDmg
+            artifact_path: desktop/build/compose/binaries/main/dmg/*.dmg
+          - name: Linux
+            os: ubuntu-latest
+            tasks: packageDeb
+            artifact_path: desktop/build/compose/binaries/main/deb/*.deb
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Windows: versi portabel dulu (tanpa WiX), supaya "My Singghara.exe" tetap ada
+      # walaupun langkah installer di bawah gagal karena WiX belum terpasang di runner.
+      - name: Build versi portabel (Windows)
+        if: matrix.name == 'Windows'
+        run: ./gradlew createDistributable -PappVersionName=1.0.${{ github.run_number }} --no-daemon
+
+      - name: Unggah versi portabel (Windows)
+        if: matrix.name == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-singghara-desktop-Windows-portable
+          path: desktop/build/compose/binaries/main/app/
+          if-no-files-found: error
+
+      - name: Build installer
+        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: my-singghara-desktop-${{ matrix.name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
