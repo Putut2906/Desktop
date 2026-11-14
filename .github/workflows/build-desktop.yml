@@ -14,7 +14,7 @@ on:
       - '.github/workflows/build-desktop.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
@@ -103,3 +103,91 @@ jobs:
           name: my-singghara-desktop-${{ matrix.name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+
+  # Menerbitkan GitHub Release dari artefak build-desktop yang sukses, memakai
+  # GITHUB_TOKEN bawaan Actions (tidak perlu login gh lokal). Pola mengikuti
+  # build-release.yml Android: tag v1.0.<run_number>, changelog dari git log.
+  release:
+    name: Terbitkan Release
+    needs: package
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Unduh semua artefak desktop
+        uses: actions/download-artifact@v4
+        with:
+          pattern: my-singghara-desktop-*
+          path: dl
+          merge-multiple: false
+
+      - name: Rakit aset rilis (installer + portable zip)
+        run: |
+          set -euo pipefail
+          TAG="v1.0.${{ github.run_number }}"
+          mkdir -p release-assets
+          # File installer tunggal per platform (exe, msi, deb, dmg) — struktur folder
+          # artefak bisa berbeda-beda, jadi cari rekursif berdasarkan ekstensi.
+          find dl -type f \( -iname '*.exe' -o -iname '*.msi' -o -iname '*.deb' -o -iname '*.dmg' \) \
+            -exec cp -v {} release-assets/ \;
+          # Versi portabel Windows = folder aplikasi "My Singghara" hasil createDistributable.
+          PORT_DIR="$(find dl -type d -name 'My Singghara' | head -n 1 || true)"
+          if [ -n "$PORT_DIR" ]; then
+            ( cd "$(dirname "$PORT_DIR")" && zip -rq "$GITHUB_WORKSPACE/release-assets/MySingghara-${TAG}-Windows-portable.zip" "$(basename "$PORT_DIR")" )
+            echo "Dibuat: MySingghara-${TAG}-Windows-portable.zip"
+          else
+            echo "Peringatan: folder portabel 'My Singghara' tidak ditemukan."
+          fi
+          echo "=== Isi release-assets ==="
+          ls -lh release-assets/
+
+      - name: Generate tag & changelog
+        id: vars
+        run: |
+          RUN_NUM="${{ github.run_number }}"
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          TAG_NAME="v1.0.${RUN_NUM}"
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --oneline --no-merges)
+          else
+            CHANGELOG=$(git log -n 10 --oneline --no-merges)
+          fi
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          if [ -z "$CHANGELOG" ]; then
+            echo "- Pembaruan build desktop (Build #${RUN_NUM})" >> "$GITHUB_OUTPUT"
+          else
+            echo "$CHANGELOG" | sed 's/^/- /' >> "$GITHUB_OUTPUT"
+          fi
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Terbitkan GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          name: My Singghara Desktop ${{ steps.vars.outputs.tag_name }}
+          body: |
+            ## 🖥️ My Singghara Desktop ${{ steps.vars.outputs.tag_name }}
+
+            Dibangun otomatis via GitHub Actions (Windows .exe/.msi + portabel, macOS .dmg, Linux .deb).
+
+            ### 📝 Catatan Pembaruan (Changelog):
+            ${{ steps.vars.outputs.changelog }}
+
+            ---
+            - **Commit SHA**: `${{ steps.vars.outputs.short_sha }}`
+            - **Build Number**: `${{ github.run_number }}`
+
+            ### 📥 Unduh:
+            Pilih berkas sesuai sistem operasi Anda di bagian **Assets** di bawah.
+          draft: false
+          prerelease: false
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
