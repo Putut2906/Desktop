@@ -1,6 +1,7 @@
 # Membangun versi desktop: Windows (.exe installer, .msi, dan folder portabel), macOS (.dmg), Linux (.deb).
 # jpackage tidak bisa lintas-OS, jadi setiap format dibangun di runner OS-nya sendiri.
 # Terpisah dari build-release.yml (APK Android) dan hanya jalan saat berkas terkait desktop berubah.
+# Catatan: memicu ulang rilis Desktop cukup ubah komentar baris ini lalu push ke main.
 name: Build Desktop
 
 on:
