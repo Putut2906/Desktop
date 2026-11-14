@@ -68,7 +68,35 @@ jobs:
           if-no-files-found: error
 
       - name: Build installer
-        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon
+        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon --stacktrace
+
+      # Diagnostik: saat build installer gagal, munculkan ekor log Gradle/jpackage sebagai
+      # annotation ("::error::") supaya bisa dibaca tanpa hak admin, lalu lanjutkan agar
+      # artefak yang sudah ada tetap terunggah.
+      - name: Tampilkan ekor log bila build installer gagal
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "Perintah yang dijalankan: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon --stacktrace"
+          LOG="$(find . -path '*/compose/logs/*' -type f 2>/dev/null | head -n 1 || true)"
+          if [ -n "$LOG" ]; then
+            echo "Log jpackage: $LOG"
+            MSG="$(tail -n 40 "$LOG" | sed 's/%/%25/g; s/\r/%0D/g; s/"/%22/g; s/#/%23/g' | tr '\n' '|' | sed 's/|/%0A/g')"
+          else
+            MSG="Log jpackage tidak ditemukan; lihat Gradle --stacktrace di log mentah langkah Build installer."
+          fi
+          echo "::error::[desktop ${{ matrix.name }}] $MSG"
+
+      - name: Unggah log diagnostik (bila gagal)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}-build-log
+          path: |
+            desktop/build/compose/logs
+            desktop/build/reports
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
