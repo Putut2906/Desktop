@@ -132,7 +132,10 @@ jobs:
           mkdir -p release-assets
           # File installer tunggal per platform (exe, msi, deb, dmg) — struktur folder
           # artefak bisa berbeda-beda, jadi cari rekursif berdasarkan ekstensi.
+          # Kecualikan isi folder portabel "My Singghara/" (launcher .exe internal di
+          # dalamnya sudah dibundel ke zip portable, bukan installer lepas).
           find dl -type f \( -iname '*.exe' -o -iname '*.msi' -o -iname '*.deb' -o -iname '*.dmg' \) \
+            -not -path '*/My Singghara/*' \
             -exec cp -v {} release-assets/ \;
           # Versi portabel Windows = folder aplikasi "My Singghara" hasil createDistributable.
           PORT_DIR="$(find dl -type d -name 'My Singghara' | head -n 1 || true)"
